@@ -262,6 +262,114 @@
             background: #667eea;
             color: white;
         }
+
+        /* Debug viewer styles */
+        .session-card {
+            background: #f8f9ff;
+            padding: 15px;
+            border-radius: 10px;
+            cursor: pointer;
+            border-left: 4px solid #667eea;
+            margin-bottom: 10px;
+            transition: all 0.3s;
+        }
+        
+        .session-card:hover {
+            background: #eef0ff;
+            transform: translateX(5px);
+        }
+        
+        .session-card.active {
+            border-left-color: #28a745;
+            background: #e8f5e9;
+        }
+
+        .log-entry {
+            background: #f8f9ff;
+            padding: 15px;
+            border-radius: 10px;
+            margin-bottom: 10px;
+            border-left: 4px solid #667eea;
+        }
+
+        .log-entry.recv {
+            border-left-color: #ff6b6b;
+        }
+
+        .log-entry.send {
+            border-left-color: #51cf66;
+        }
+
+        .log-header {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 10px;
+            font-weight: 600;
+        }
+
+        .msg-num {
+            color: #667eea;
+        }
+
+        .direction {
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+
+        .direction.recv {
+            background: #ffe0e0;
+            color: #c92a2a;
+        }
+
+        .direction.send {
+            background: #d3f9d8;
+            color: #2b8a3e;
+        }
+
+        .msg-type {
+            color: #f59f00;
+            font-family: 'Courier New', monospace;
+        }
+
+        .hex-data {
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            color: #555;
+            word-break: break-all;
+            background: #fff;
+            padding: 10px;
+            border-radius: 5px;
+            max-height: 150px;
+            overflow-y: auto;
+        }
+
+        .debug-stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+
+        .debug-stat {
+            background: #f8f9ff;
+            padding: 15px;
+            border-radius: 10px;
+            text-align: center;
+        }
+
+        .debug-stat-value {
+            font-size: 2em;
+            font-weight: 700;
+            color: #667eea;
+        }
+
+        .debug-stat-label {
+            font-size: 0.85em;
+            color: #666;
+            margin-top: 5px;
+        }
         
         @media (max-width: 768px) {
             .config {
@@ -328,12 +436,34 @@
             </div>
             <div id="attemptsTable"></div>
         </div>
+
+        <div class="section">
+            <h2>🔍 Debug Sessions</h2>
+            <div class="toolbar">
+                <button onclick="loadDebugSessions()">🔄 Refresh Sessions</button>
+                <button onclick="clearDebugLogs()">🗑️ Clear All Debug Logs</button>
+            </div>
+            <div id="debugSessionsList"></div>
+        </div>
+
+        <div class="section" id="debugDetailsSection" style="display: none;">
+            <h2>📊 Session Details: <span id="currentSessionId"></span></h2>
+            <div id="debugStatsSection"></div>
+            <div class="toolbar">
+                <input type="text" id="debugFilterType" placeholder="Filter by type (e.g., 0x64)">
+                <button onclick="filterDebugLogs()">🔍 Filter</button>
+                <button onclick="exportDebugLogs()">📥 Export CSV</button>
+            </div>
+            <div id="debugLogsView"></div>
+        </div>
     </div>
 
     <script>
         const API_URL_KEY = 'vgc_api_url';
         const SECRET_KEY = 'vgc_admin_secret';
         let allKeys = [];
+        let currentDebugSession = null;
+        let allDebugLogs = [];
 
         window.onload = () => {
             document.getElementById('apiUrl').value = localStorage.getItem(API_URL_KEY) || '';
@@ -341,6 +471,7 @@
             if (document.getElementById('apiUrl').value) {
                 loadKeys();
                 loadAttempts();
+                loadDebugSessions();
             }
         };
 
@@ -349,6 +480,7 @@
             localStorage.setItem(SECRET_KEY, document.getElementById('adminSecret').value);
             showResult('✅ Configuration saved successfully!', 'success');
             loadKeys();
+            loadDebugSessions();
         }
 
         function getHeaders() {
@@ -371,11 +503,11 @@
         }
 
         async function generateKey() {
-            const key = document.getElementById('keyName').value.trim();
+            const name = document.getElementById('keyName').value.trim();
             const expires_days = parseInt(document.getElementById('expireDays').value);
         
-            if (!key) {
-                showResult('❌ Please enter a key value', 'error');
+            if (!name) {
+                showResult('❌ Please enter a customer name', 'error');
                 return;
             }
         
@@ -383,13 +515,13 @@
                 const res = await fetch(`${getApiUrl()}/admin/genkey`, {
                     method: 'POST',
                     headers: getHeaders(),
-                    body: JSON.stringify({ key, expires_days })
+                    body: JSON.stringify({ name, expires_days })
                 });
         
                 const data = await res.json();
         
                 if (data.key) {
-                    showResult(`✅ Key created successfully: ${data.key}`, 'success');
+                    showResult(`✅ Key created successfully: ${data.key} for ${name}`, 'success');
                     document.getElementById('keyName').value = '';
                     document.getElementById('expireDays').value = '30';
                     loadKeys();
@@ -570,6 +702,147 @@
                 document.getElementById('attemptsTable').innerHTML = html;
             } catch (e) {
                 document.getElementById('attemptsTable').innerHTML = '<p style="color:red;">Error: ' + e.message + '</p>';
+            }
+        }
+
+        // Debug viewer functions
+        async function loadDebugSessions() {
+            try {
+                const res = await fetch(`${getApiUrl()}/admin/debug/sessions/list`, {
+                    headers: getHeaders()
+                });
+                const sessions = await res.json();
+                
+                let html = '';
+                sessions.forEach(s => {
+                    const date = new Date(s.started * 1000).toLocaleString();
+                    const active = s.session_id === currentDebugSession ? 'active' : '';
+                    html += `<div class="session-card ${active}" onclick="loadDebugSession('${s.session_id}')">
+                        <div><strong>📂 ${s.session_id}</strong></div>
+                        <div><small>Started: ${date}</small></div>
+                    </div>`;
+                });
+                
+                document.getElementById('debugSessionsList').innerHTML = html || '<p style="color:#999">No debug sessions found. Run vgc_cloud_debug.exe to start logging.</p>';
+            } catch (e) {
+                document.getElementById('debugSessionsList').innerHTML = '<p style="color:red;">Error: ' + e.message + '</p>';
+            }
+        }
+
+        async function loadDebugSession(sessionId) {
+            currentDebugSession = sessionId;
+            document.getElementById('currentSessionId').textContent = sessionId;
+            document.getElementById('debugDetailsSection').style.display = 'block';
+            
+            try {
+                const res = await fetch(`${getApiUrl()}/admin/debug/${sessionId}`, {
+                    headers: getHeaders()
+                });
+                allDebugLogs = await res.json();
+                displayDebugLogs(allDebugLogs);
+                displayDebugStats(allDebugLogs);
+                loadDebugSessions();
+            } catch (e) {
+                document.getElementById('debugLogsView').innerHTML = '<p style="color:red;">Error: ' + e.message + '</p>';
+            }
+        }
+
+        function displayDebugStats(logs) {
+            const recv = logs.filter(l => l.direction === 'RECV').length;
+            const send = logs.filter(l => l.direction === 'SEND').length;
+            const types = new Set(logs.map(l => l.msg_type)).size;
+            
+            const html = `
+                <div class="debug-stats">
+                    <div class="debug-stat">
+                        <div class="debug-stat-value">${logs.length}</div>
+                        <div class="debug-stat-label">Total Messages</div>
+                    </div>
+                    <div class="debug-stat">
+                        <div class="debug-stat-value">${recv}</div>
+                        <div class="debug-stat-label">Received</div>
+                    </div>
+                    <div class="debug-stat">
+                        <div class="debug-stat-value">${send}</div>
+                        <div class="debug-stat-label">Sent</div>
+                    </div>
+                    <div class="debug-stat">
+                        <div class="debug-stat-value">${types}</div>
+                        <div class="debug-stat-label">Unique Types</div>
+                    </div>
+                </div>
+            `;
+            document.getElementById('debugStatsSection').innerHTML = html;
+        }
+
+        function displayDebugLogs(logs) {
+            let html = '';
+            logs.forEach(log => {
+                const time = new Date(log.timestamp * 1000).toLocaleTimeString();
+                const dirClass = log.direction.toLowerCase();
+                
+                html += `<div class="log-entry ${dirClass}">
+                    <div class="log-header">
+                        <span class="msg-num">MSG #${log.msg_num}</span>
+                        <span class="direction ${dirClass}">${log.direction}</span>
+                        <span class="msg-type">${log.msg_type}</span>
+                        <span>${log.size} bytes</span>
+                        <span>${time}</span>
+                    </div>
+                    <div class="hex-data">${log.hex_data}</div>
+                </div>`;
+            });
+            
+            document.getElementById('debugLogsView').innerHTML = html || '<p>No logs</p>';
+        }
+
+        function filterDebugLogs() {
+            const filter = document.getElementById('debugFilterType').value.toLowerCase();
+            if (!filter) {
+                displayDebugLogs(allDebugLogs);
+                return;
+            }
+            
+            const filtered = allDebugLogs.filter(l => 
+                l.msg_type.toLowerCase().includes(filter)
+            );
+            displayDebugLogs(filtered);
+        }
+
+        function exportDebugLogs() {
+            if (!allDebugLogs.length) {
+                alert('No logs to export');
+                return;
+            }
+            
+            const csv = 'Msg,Direction,Type,Size,Hex Data\n' + 
+                allDebugLogs.map(l => `${l.msg_num},${l.direction},${l.msg_type},${l.size},"${l.hex_data}"`).join('\n');
+            
+            const blob = new Blob([csv], { type: 'text/csv' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `vgc-debug-${currentDebugSession}.csv`;
+            a.click();
+        }
+
+        async function clearDebugLogs() {
+            if (!confirm('Clear all debug logs? This cannot be undone.')) return;
+            
+            try {
+                await fetch(`${getApiUrl()}/admin/debug/clear`, {
+                    method: 'DELETE',
+                    headers: getHeaders()
+                });
+                showResult('✅ All debug logs cleared!', 'success');
+                currentDebugSession = null;
+                allDebugLogs = [];
+                document.getElementById('debugLogsView').innerHTML = '';
+                document.getElementById('debugStatsSection').innerHTML = '';
+                document.getElementById('debugDetailsSection').style.display = 'none';
+                loadDebugSessions();
+            } catch (e) {
+                showResult('❌ Error: ' + e.message, 'error');
             }
         }
     </script>
