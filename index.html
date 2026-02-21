@@ -503,25 +503,24 @@
         }
 
         async function generateKey() {
-            const name = document.getElementById('keyName').value.trim();
+            const key = document.getElementById('keyName').value.trim();
             const expires_days = parseInt(document.getElementById('expireDays').value);
         
-            if (!name) {
-                showResult('❌ Please enter a customer name', 'error');
-                return;
+             if (!key) {
+                showResult('❌ Please enter a key value', 'error');
             }
         
             try {
                 const res = await fetch(`${getApiUrl()}/admin/genkey`, {
                     method: 'POST',
                     headers: getHeaders(),
-                    body: JSON.stringify({ name, expires_days })
+                    body: JSON.stringify({ key, expires_days })
                 });
         
                 const data = await res.json();
         
                 if (data.key) {
-                    showResult(`✅ Key created successfully: ${data.key} for ${name}`, 'success');
+                    showResult(`✅ Key created successfully: ${data.key}`, 'success');
                     document.getElementById('keyName').value = '';
                     document.getElementById('expireDays').value = '30';
                     loadKeys();
